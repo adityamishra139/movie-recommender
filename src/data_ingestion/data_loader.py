@@ -1,27 +1,37 @@
 import pandas as pd
 import os
 
+
 def load_data():
     """
-    Loads the movie and credits datasets from raw csv files.
-    Returns:
-        movies (pd.DataFrame): The movies dataset.
-        credits (pd.DataFrame): The credits dataset.
-    """
-    # Define absolute paths using os.path.join for better compatibility
-    # Assuming the script is run from the project root or we can rely on relative paths from the workspace root
-    # Ideally, we should find the project root dynamically, but for now we'll assumes a standard structure
-    # or use absolute paths if provided by the environment, but here we'll use paths relative to the project root
-    # given the workspace is /Users/rentomojo/Desktop/movie-recommender
+    Loads the movie and credits datasets using project-relative paths.
+    Works both locally and on cloud platforms like Render.
     
-    project_root = '/Users/rentomojo/Desktop/movie-recommender'
-    movies_path = os.path.join(project_root, 'data', 'raw', 'tmdb_5000_movies.csv')
-    credits_path = os.path.join(project_root, 'data', 'raw', 'tmdb_5000_credits.csv')
-
+    Returns:
+        movies (pd.DataFrame)
+        credits (pd.DataFrame)
+    """
     try:
+        # Absolute path to the project root
+        # src/data_ingestion/data_loader.py -> src -> project root
+        base_dir = os.path.dirname(
+            os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))
+            )
+        )
+
+        movies_path = os.path.join(
+            base_dir, "data", "raw", "tmdb_5000_movies.csv"
+        )
+        credits_path = os.path.join(
+            base_dir, "data", "raw", "tmdb_5000_credits.csv"
+        )
+
         movies = pd.read_csv(movies_path)
         credits = pd.read_csv(credits_path)
+
         return movies, credits
-    except FileNotFoundError as e:
-        print(f"Error loading data: {e}")
+
+    except Exception as e:
+        print(f"❌ Error loading data: {e}")
         return None, None
