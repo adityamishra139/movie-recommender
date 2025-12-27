@@ -1,6 +1,13 @@
 from fastapi import FastAPI, Query
+import os
+
+from src.data_ingestion.data_loader import load_data
+from src.feature_engineering.feature_builder import FeatureBuilder
+from src.ml.vectorizer import TextVectorizer
+from src.ml.similarity import SimilarityEngine
 from src.utils.model_persistence import ModelPersistence
 from src.ml.recommender import Recommender
+
 
 app = FastAPI(
     title="Movie Recommendation API",
@@ -8,66 +15,81 @@ app = FastAPI(
     version="1.0.0"
 )
 
-print("🔄 Loading model artifacts...")
+print("🔄 Initializing Movie Recommender backend...")
 
-# Load artifacts once at startup
-try:
-    persistence = ModelPersistence()
+persistence = ModelPersistence()
+ARTIFACT_DIR = "artifacts"
+SIM_PATH = os.path.join(ARTIFACT_DIR, "similarity.pkl")
+MOVIES_PATH = os.path.join(ARTIFACT_DIR, "movies.pkl")
+
+# --------------------------------------------------
+# BUILD OR LOAD MODEL (RUNS ONCE AT SERVER START)
+# --------------------------------------------------
+if os.path.exists(SIM_PATH) and os.path.exists(MOVIES_PATH):
+    print("⚡ Loading existing artifacts...")
     processed_df = persistence.load("movies.pkl")
     similarity = persistence.load("similarity.pkl")
-    recommender = Recommender(processed_df, similarity)
-    print("✅ Model loaded and ready.")
-except Exception as e:
-    print(f"❌ Error loading models: {e}")
-    print("Make sure to run 'python app.py' with BUILD_MODEL=True at least once.")
-    processed_df = None
-    similarity = None
-    recommender = None
+else:
+    print("🔨 Artifacts not found. Building model on server...")
 
+    # 1. Load raw data
+    movies, credits = load_data()
+    if movies is None or credits is None:
+        raise RuntimeError("Failed to load movie data")
+
+    # 2. Merge
+    df = movies.merge(credits, left_on="id", right_on="movie_id")
+
+    # 3. Feature engineering
+    builder = FeatureBuilder()
+    processed_df = builder.build_features(df)
+
+    # 4. Vectorization
+    vectorizer = TextVectorizer()
+    vectors = vectorizer.fit_transform(processed_df["soup"])
+
+    # 5. Similarity
+    similarity_engine = SimilarityEngine()
+    similarity = similarity_engine.compute_similarity(vectors)
+
+    # 6. Save artifacts (for future restarts)
+    persistence.save(processed_df, "movies.pkl")
+    persistence.save(similarity, "similarity.pkl")
+
+print("✅ Model ready. Initializing recommender...")
+recommender = Recommender(processed_df, similarity)
+
+
+# --------------------------------------------------
+# API ENDPOINTS
+# --------------------------------------------------
 @app.get("/")
 def home():
     return {"message": "Movie Recommender API is running"}
 
+
 @app.get("/recommend")
 def recommend(
-    movie: str = Query(..., description="Movie name to get recommendations for"),
-    top_n: int = 5
+    movie: str = Query(..., description="Movie name"),
+    top_n: int = Query(5, description="Number of recommendations")
 ):
-    if recommender is None:
-        return {"error": "Model not loaded. Please ensure artifacts are generated."}
+    candidates = recommender.search_movies(movie)
 
-    try:
-        candidates = recommender.search_movies(movie)
-
-        if not candidates:
-            return {
-                "error": f"Movie '{movie}' not found",
-                "suggestions": []
-            }
-
-        # Exact match logic
-        exact_match = next(
-            (c for c in candidates if c.lower() == movie.lower()),
-            None
-        )
-
-        target_movie = None
-        if exact_match:
-            target_movie = exact_match
-        elif len(candidates) == 1:
-            target_movie = candidates[0]
-        else:
-            return {
-                "error": "Multiple matches found",
-                "suggestions": candidates[:10]
-            }
-
-        recommendations = recommender.recommend(target_movie, top_n=top_n)
-
+    if not candidates:
         return {
-            "input_movie": target_movie,
-            "recommendations": recommendations
+            "error": f"Movie '{movie}' not found",
+            "suggestions": []
         }
 
-    except Exception as e:
-        return {"error": str(e)}
+    exact_match = next(
+        (c for c in candidates if c.lower() == movie.lower()),
+        None
+    )
+
+    target_movie = exact_match if exact_match else candidates[0]
+    recommendations = recommender.recommend(target_movie, top_n)
+
+    return {
+        "input_movie": target_movie,
+        "recommendations": recommendations
+    }
