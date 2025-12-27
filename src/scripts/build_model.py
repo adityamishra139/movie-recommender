@@ -20,18 +20,11 @@ def build():
         sys.exit(1)
 
     # 2. Merge
-    # 2. Merge
     print("Pre-processing data...")
     df = movies.merge(credits, left_on="id", right_on="movie_id")
     
-    # OPTIMIZATION: Limit to top 3000 movies to save memory on Render (Free Tier = 512MB RAM)
-    # The full 5000x5000 float32 matrix is too large when combined with overhead.
-    if 'popularity' in df.columns:
-        print("Sorting by popularity and selecting top 3000...")
-        df = df.sort_values(by='popularity', ascending=False)
-    
-    df = df.head(3000).reset_index(drop=True)
-    print(f"Dataset reduced to {len(df)} movies.")
+    # Using full dataset (5000 movies) as per user request
+    print(f"Dataset size: {len(df)} movies.")
 
     # 3. Feature Engineering
     print("Building features...")

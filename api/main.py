@@ -86,7 +86,17 @@ def recommend(
         None
     )
 
-    target_movie = exact_match if exact_match else candidates[0]
+    if exact_match:
+        target_movie = exact_match
+    elif len(candidates) == 1:
+        target_movie = candidates[0]
+    else:
+        # Ambiguous match
+        return {
+            "error": "Multiple matches found",
+            "suggestions": candidates[:10]
+        }
+
     recommendations = recommender.recommend(target_movie, top_n)
 
     return {
